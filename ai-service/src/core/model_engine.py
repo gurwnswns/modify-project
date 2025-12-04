@@ -46,7 +46,7 @@ class ModelEngine:
                         "decoding_method": "greedy",
                         "max_new_tokens": 900,
                         "min_new_tokens": 1,
-                        "temperature": 0.1
+                        "temperature": 0.2
                     }
                 )
                 self.text_model = self.vision_model
