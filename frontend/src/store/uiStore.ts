@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { create } from "zustand";
 
 interface UIState {
   isDarkMode: boolean;
@@ -8,18 +8,18 @@ interface UIState {
 }
 
 export const useUIStore = create<UIState>((set, get) => ({
-  isDarkMode: localStorage.getItem('theme') === 'dark',
+  isDarkMode: localStorage.getItem("theme") === "dark",
   isBlindMode: false,
 
   toggleDarkMode: () => {
     const nextMode = !get().isDarkMode;
     set({ isDarkMode: nextMode });
     if (nextMode) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
+      document.documentElement.classList.add("dark");
+      localStorage.setItem("theme", "dark");
     } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
+      document.documentElement.classList.remove("dark");
+      localStorage.setItem("theme", "light");
     }
   },
 
