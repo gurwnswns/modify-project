@@ -1,372 +1,206 @@
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useAuthStore } from "@/store/authStore";
-import {
-  MousePointer2,
-  ChevronRight,
-  CheckCircle2,
-  ArrowLeft,
-} from "lucide-react";
-import Modal from "@/components/ui/Modal";
-
-// API URL
-const API_BASE_URL = "http://localhost:8000/api/v1";
+import React, { useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuthStore } from '@/store/authStore';
+import client from '@/api/client';
+import { Camera, ArrowLeft, Save, Settings, LogOut } from 'lucide-react';
 
 export default function Profile() {
   const navigate = useNavigate();
-  const { user, token, setUser } = useAuthStore();
+  const { user, setUser, logout } = useAuthStore(); 
 
-  const [activeModal, setActiveModal] = useState<
-    "name" | "password" | "phone" | "reset" | null
-  >(null);
+  // -- 🟢 상태 관리 --
+  const [nickname, setNickname] = useState(user?.full_name || '');
+  // previewImage: 화면에 보여줄 이미지 URL (기존 프사 or 새로 선택한 파일의 미리보기 URL)
+  const [previewImage, setPreviewImage] = useState<string | null>(user?.profile_image || null);
+  
+  // 🔴 [추가됨] 실제 업로드할 파일 객체를 저장하는 State
+  // 사용자가 파일을 선택하면 여기에 저장했다가, 저장 버튼 누를 때 서버로 보냄.
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  
   const [isLoading, setIsLoading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 폼 상태
-  const [newName, setNewName] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [newPhone, setNewPhone] = useState("");
+  // -- 🔵 핸들러 함수들 --
 
-  const handleGoBack = () => navigate(-1);
-
-  const closeModal = () => {
-    setActiveModal(null);
-    setNewName("");
-    setNewPassword("");
-    setConfirmPassword("");
-    setNewPhone("");
-  };
-
-  // ----------------------------------------------------------------------
-  // ✨ 마스킹 헬퍼 함수들
-  // ----------------------------------------------------------------------
-
-  // 이메일 마스킹 (abc***@naver.com)
-  const maskEmail = (email: string) => {
-    if (!email) return "";
-    const [name, domain] = email.split("@");
-    const maskedName =
-      name.length > 3 ? name.slice(0, 3) + "*".repeat(name.length - 3) : name;
-    return `${maskedName}@${domain}`;
-  };
-
-  // ✨ 휴대폰 번호 마스킹 (010-****-5678)
-  const formatPhoneNumber = (phone: string | undefined) => {
-    // 1. 데이터가 없으면 기본값 표시
-    if (!phone) return "010-****-**** (미등록)";
-
-    // 2. 숫자만 추출
-    const clean = phone.replace(/[^0-9]/g, "");
-
-    // 3. 길이에 따른 마스킹 처리
-    if (clean.length === 11) {
-      // 010-1234-5678 -> 010-****-5678
-      return `${clean.slice(0, 3)}-****-${clean.slice(7)}`;
-    } else if (clean.length === 10) {
-      // 010-123-4567 -> 010-***-4567
-      return `${clean.slice(0, 3)}-***-${clean.slice(6)}`;
+  // 📸 이미지 선택 시 실행 (미리보기 + 파일 저장)
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // 1. 화면 표시용 (미리보기 URL 생성) - 즉시 보여줌
+      const imageUrl = URL.createObjectURL(file);
+      setPreviewImage(imageUrl);
+      
+      // 2. 🔴 실제 파일 객체 저장 (나중에 업로드용)
+      setSelectedFile(file);
     }
-
-    // 형식이 안 맞으면 그냥 원본 출력 (혹은 보안을 위해 전체 마스킹)
-    return phone;
   };
 
-  // ----------------------------------------------------------------------
-  // API 통신
-  // ----------------------------------------------------------------------
-  const updateProfile = async (data: object, successMessage: string) => {
-    if (!token) return;
+  // 💾 [저장하기] 버튼 클릭 시 실행 (핵심 로직!)
+  const handleSave = async () => {
+    if (!nickname.trim()) return alert("닉네임을 입력해주세요.");
     setIsLoading(true);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/users/me`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(data),
-      });
+      let finalImageUrl = user?.profile_image; // 기본값: 기존 이미지 유지
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        throw new Error(errorData?.detail || `서버 오류 (${response.status})`);
+      // 🔴 1. 새 이미지를 선택했다면? -> 먼저 서버로 업로드!
+      if (selectedFile) {
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+
+        // 백엔드 업로드 API 호출 (아까 만든 upload.py)
+        // /api/v1/utils/upload/image 주소로 요청 보냄
+        const uploadRes = await client.post('/utils/upload/image', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        
+        // 업로드 성공! 서버가 알려준 이미지 주소(URL)를 받음
+        finalImageUrl = uploadRes.data.url;
       }
 
-      const updatedUser = await response.json();
-      setUser(updatedUser); // 스토어 업데이트 (여기서 DB 데이터로 덮어씌워짐)
-      alert(successMessage);
-      closeModal();
-    } catch (error: any) {
+      // 🔴 2. 프로필 정보 업데이트 (PATCH)
+      // 닉네임과 (바꼈다면) 새 이미지 URL을 백엔드에 저장 요청
+      const response = await client.patch('/users/me', {
+        full_name: nickname,
+        profile_image: finalImageUrl 
+      });
+
+      // 3. 스토어 업데이트 및 알림
+      setUser(response.data); 
+      alert("프로필이 수정되었습니다! ✨");
+      // navigate(-1); // 저장 후 뒤로가기 (선택사항)
+
+    } catch (error) {
       console.error(error);
-      alert(`업데이트 실패: ${error.message}`);
+      alert("수정에 실패했습니다.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleSubmitName = () => {
-    if (!newName.trim()) return alert("이름을 입력해주세요.");
-    updateProfile({ full_name: newName }, "이름이 변경되었습니다.");
-  };
-
-  const handleSubmitPassword = () => {
-    if (newPassword.length < 6)
-      return alert("비밀번호는 6자 이상이어야 합니다.");
-    if (newPassword !== confirmPassword)
-      return alert("비밀번호가 일치하지 않습니다.");
-    updateProfile({ password: newPassword }, "비밀번호가 변경되었습니다.");
-  };
-
-  const handleSubmitPhone = () => {
-    // 입력값에서 하이픈 제거하고 전송
-    const cleanPhone = newPhone.replace(/-/g, "");
-    if (cleanPhone.length < 10)
-      return alert("올바른 휴대폰 번호를 입력해주세요.");
-
-    updateProfile(
-      { phone_number: cleanPhone },
-      "휴대폰 번호가 변경되었습니다."
-    );
-  };
-
-  const handleSubmitReset = () => {
-    alert("본인인증 정보가 초기화되었습니다.");
-    closeModal();
-  };
-
-  if (!user)
-    return (
-      <div className="p-10 text-center">로그인 정보를 불러오는 중입니다...</div>
-    );
-
   return (
-    <div className="w-full max-w-5xl mx-auto px-6 py-10 animate-fade-in-up">
-      {/* 헤더 */}
-      <div className="flex items-center gap-4 mb-6">
-        <button
-          onClick={handleGoBack}
-          className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+    <div className="min-h-screen bg-[#F9FAFB] flex flex-col items-center justify-center p-6">
+      
+      {/* 뒤로가기 버튼 */}
+      <div className="w-full max-w-[480px] mb-4">
+        <button 
+          onClick={() => navigate('/')} 
+          className="flex items-center text-slate-500 hover:text-slate-800 transition-colors"
         >
-          <ArrowLeft className="w-6 h-6 text-gray-900" />
+          <ArrowLeft size={20} className="mr-1" /> 홈으로
         </button>
-        <div className="flex items-center gap-2">
-          <MousePointer2 className="w-6 h-6 text-black fill-black" />
-          <h1 className="text-2xl font-bold text-gray-900">계정정보</h1>
-        </div>
       </div>
 
-      {/* 메인 카드 */}
-      <div className="bg-white rounded-[20px] shadow-sm border border-gray-100 p-8 sm:p-10">
-        <section className="mb-12">
-          <h2 className="text-sm font-bold text-gray-500 mb-6">프로필</h2>
-          <div className="space-y-8">
-            {/* ID */}
-            <div className="flex justify-between items-center group">
-              <div className="flex items-center w-1/3">
-                <span className="text-sm font-medium text-gray-600 w-24">
-                  Modify ID
+      {/* 🪪 프로필 카드 */}
+      <div className="w-full max-w-[480px] bg-white rounded-[32px] shadow-xl p-8 border border-gray-100 relative overflow-hidden">
+        
+        {/* 상단 배경 장식 */}
+        <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-r from-[#7A51A1] to-[#5D93D0] opacity-10"></div>
+
+        <div className="relative flex flex-col items-center mt-4">
+          
+          <h2 className="text-2xl font-bold text-gray-800 mb-8">프로필 편집</h2>
+
+          {/* 🖼️ 프사 영역 */}
+          <div className="relative group mb-8">
+            <div className="w-32 h-32 rounded-full border-4 border-white shadow-lg overflow-hidden bg-gray-100 flex items-center justify-center">
+              {/* 이미지가 있으면 이미지 표시, 없으면 이니셜 표시 */}
+              {previewImage ? (
+                <img src={previewImage} alt="Profile" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-4xl font-bold text-gray-300">
+                  {user?.email?.[0].toUpperCase() || 'M'}
                 </span>
-                <span className="text-sm font-bold text-gray-900">
-                  {maskEmail(user.email)}
-                </span>
-              </div>
-              <button className="flex items-center text-xs font-bold text-gray-300 cursor-not-allowed">
-                변경 불가
-              </button>
+              )}
             </div>
 
-            {/* 비밀번호 */}
-            <div
-              className="flex justify-between items-center group cursor-pointer"
-              onClick={() => setActiveModal("password")}
+            {/* 카메라 버튼 */}
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              className="absolute bottom-0 right-0 w-10 h-10 bg-[#7A51A1] text-white rounded-full flex items-center justify-center shadow-md hover:bg-[#6941C6] transition-all hover:scale-110 border-2 border-white"
             >
-              <div className="flex items-center w-1/3">
-                <span className="text-sm font-medium text-gray-600 w-24">
-                  비밀번호
-                </span>
-                <span className="text-sm font-bold text-gray-900 tracking-widest">
-                  ********
-                </span>
-              </div>
-              <button className="flex items-center text-xs font-bold text-gray-400 group-hover:text-gray-600 transition-colors">
-                변경 <ChevronRight className="w-4 h-4 text-[#4ADE80] ml-1" />
-              </button>
-            </div>
-
-            {/* 이름 */}
-            <div
-              className="flex justify-between items-center group cursor-pointer"
-              onClick={() => {
-                setNewName(user.full_name || "");
-                setActiveModal("name");
-              }}
-            >
-              <div className="flex items-center w-1/3">
-                <span className="text-sm font-medium text-gray-600 w-24">
-                  이름
-                </span>
-                <span className="text-sm font-bold text-gray-900">
-                  {user.full_name || "이름 없음"}
-                </span>
-              </div>
-              <button className="flex items-center text-xs font-bold text-gray-400 group-hover:text-gray-600 transition-colors">
-                변경 <ChevronRight className="w-4 h-4 text-[#4ADE80] ml-1" />
-              </button>
-            </div>
-
-            {/* 휴대폰 - ✨ 마스킹 적용됨 */}
-            <div
-              className="flex justify-between items-center group cursor-pointer"
-              onClick={() => {
-                setNewPhone(user.phone_number || "");
-                setActiveModal("phone");
-              }}
-            >
-              <div className="flex items-center w-1/3">
-                <span className="text-sm font-medium text-gray-600 w-24">
-                  휴대폰
-                </span>
-                <span className="text-sm font-bold text-gray-900">
-                  {formatPhoneNumber(user.phone_number)}
-                </span>
-              </div>
-              <div className="flex gap-3">
-                <button className="flex items-center text-xs font-bold text-gray-400 group-hover:text-gray-600 transition-colors">
-                  변경 <span className="w-[1px] h-3 bg-gray-300 mx-2"></span>{" "}
-                  삭제
-                  <ChevronRight className="w-4 h-4 text-[#4ADE80] ml-1" />
-                </button>
-              </div>
-            </div>
+              <Camera size={18} />
+            </button>
+            
+            {/* 숨겨진 파일 인풋 (실제 파일 선택 창) */}
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              className="hidden" 
+              accept="image/*" 
+              onChange={handleImageChange} 
+            />
           </div>
-        </section>
 
-        <div className="w-full h-[1px] bg-gray-100 mb-10"></div>
-
-        <section>
-          <h2 className="text-sm font-bold text-gray-500 mb-6">본인확인</h2>
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-bold text-gray-900">
-                본인확인 완료
-              </span>
-              <CheckCircle2
-                className={`w-4 h-4 ${
-                  user.is_active ? "text-[#FF5A5A]" : "text-gray-300"
-                } fill-current`}
+          {/* 📝 닉네임 입력 폼 */}
+          <div className="w-full space-y-6">
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-gray-600 ml-1">닉네임</label>
+              <input 
+                type="text" 
+                value={nickname}
+                onChange={(e) => setNickname(e.target.value)}
+                className="w-full h-[54px] px-5 bg-[#F2F4F7] border-none rounded-2xl focus:bg-white focus:ring-2 focus:ring-[#7A51A1] outline-none transition-all text-gray-800 font-medium text-lg text-center"
+                placeholder="닉네임을 입력하세요"
               />
+              <p className="text-xs text-center text-gray-400">다른 사용자에게 표시되는 이름입니다.</p>
             </div>
-            <button
-              onClick={() => setActiveModal("reset")}
-              className="px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-all shadow-sm"
+
+            {/* 이메일 (수정 불가) */}
+            <div className="space-y-2 opacity-60">
+              <label className="text-sm font-bold text-gray-500 ml-1">계정 (이메일)</label>
+              <div className="w-full h-[54px] px-5 bg-gray-100 rounded-2xl flex items-center justify-center text-gray-500 font-medium">
+                {user?.email}
+              </div>
+            </div>
+          </div>
+
+          {/* 저장 버튼 */}
+          <button 
+            onClick={handleSave}
+            disabled={isLoading}
+            className="w-full h-[54px] mt-8 bg-gradient-to-r from-[#7A51A1] to-[#5D93D0] hover:opacity-90 text-white font-bold rounded-2xl transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-70"
+          >
+            {isLoading ? (
+              '저장 중...'
+            ) : (
+              <>
+                <Save size={20} />
+                저장하기
+              </>
+            )}
+          </button>
+
+          {/* 👇 계정 설정으로 가는 버튼들 */}
+          <div className="w-full mt-8 pt-8 border-t border-gray-100 space-y-3">
+            <p className="text-xs text-gray-400 font-medium ml-2 mb-2">계정 관리</p>
+            
+            <button 
+              onClick={() => navigate('/account')} 
+              className="w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 rounded-2xl transition-colors group"
             >
-              본인인증 초기화
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-gray-500 shadow-sm group-hover:text-[#7A51A1]">
+                  <Settings size={20} />
+                </div>
+                <div className="text-left">
+                  <p className="text-sm font-bold text-gray-700">계정 및 보안 설정</p>
+                  <p className="text-xs text-gray-400">비밀번호 변경, 전화번호 관리</p>
+                </div>
+              </div>
+              <ArrowLeft size={18} className="text-gray-300 rotate-180" />
+            </button>
+
+            <button 
+              onClick={() => { logout(); navigate('/login'); }}
+              className="w-full flex items-center justify-center p-3 text-red-500 text-sm font-medium hover:bg-red-50 rounded-xl transition-colors"
+            >
+              <LogOut size={16} className="mr-2" /> 로그아웃
             </button>
           </div>
-        </section>
+
+        </div>
       </div>
-
-      {/* 모달들 */}
-      <Modal
-        isOpen={activeModal === "name"}
-        onClose={closeModal}
-        title="이름 변경"
-      >
-        <div className="space-y-4">
-          <input
-            type="text"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-            placeholder="새 이름"
-          />
-          <button
-            onClick={handleSubmitName}
-            disabled={isLoading}
-            className="w-full py-3 bg-black text-white rounded-lg font-bold"
-          >
-            {isLoading ? "처리 중..." : "저장하기"}
-          </button>
-        </div>
-      </Modal>
-
-      <Modal
-        isOpen={activeModal === "password"}
-        onClose={closeModal}
-        title="비밀번호 변경"
-      >
-        <div className="space-y-4">
-          <input
-            type="password"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-            placeholder="새 비밀번호"
-          />
-          <input
-            type="password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-            placeholder="비밀번호 확인"
-          />
-          <button
-            onClick={handleSubmitPassword}
-            disabled={isLoading}
-            className="w-full py-3 bg-black text-white rounded-lg font-bold"
-          >
-            {isLoading ? "처리 중..." : "변경하기"}
-          </button>
-        </div>
-      </Modal>
-
-      <Modal
-        isOpen={activeModal === "phone"}
-        onClose={closeModal}
-        title="휴대폰 번호 변경"
-      >
-        <div className="space-y-4">
-          <input
-            type="text"
-            value={newPhone}
-            onChange={(e) => setNewPhone(e.target.value)}
-            className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-            placeholder="01012345678 (하이픈 없이)"
-          />
-          <button
-            onClick={handleSubmitPhone}
-            disabled={isLoading}
-            className="w-full py-3 bg-black text-white rounded-lg font-bold"
-          >
-            {isLoading ? "처리 중..." : "저장하기"}
-          </button>
-        </div>
-      </Modal>
-
-      <Modal
-        isOpen={activeModal === "reset"}
-        onClose={closeModal}
-        title="본인인증 초기화"
-      >
-        <div className="text-center space-y-6">
-          <p className="text-gray-600">정말 초기화 하시겠습니까?</p>
-          <div className="flex gap-3">
-            <button
-              onClick={closeModal}
-              className="flex-1 py-3 bg-gray-100 rounded-lg font-bold"
-            >
-              취소
-            </button>
-            <button
-              onClick={handleSubmitReset}
-              className="flex-1 py-3 bg-red-500 text-white rounded-lg font-bold"
-            >
-              초기화
-            </button>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 }

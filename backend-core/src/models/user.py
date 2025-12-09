@@ -13,6 +13,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     hashed_password: Mapped[Optional[str]] = mapped_column(String(255))
     full_name: Mapped[Optional[str]] = mapped_column(String(100))
+    profile_image: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False)

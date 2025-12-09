@@ -102,7 +102,7 @@ export default function PasswordModal({ isOpen, onClose }: PasswordModalProps) {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-700 border-none focus:ring-2 focus:ring-purple-500 outline-none text-sm text-gray-900 dark:text-white transition-all"
-              placeholder="새 비밀번호를 한 번 더 입력"
+              placeholder="새 비밀번호를 한 번 더 입력해 주세요"
               required
             />
           </div>

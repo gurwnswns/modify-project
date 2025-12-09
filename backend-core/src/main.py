@@ -1,5 +1,5 @@
 import logging
-import os  # 👈 [필수 추가] 이 부분이 없어서 에러가 발생했습니다.
+import os  # 👈 필수 모듈
 from contextlib import asynccontextmanager
 import redis.asyncio as redis
 from fastapi import FastAPI, APIRouter
@@ -10,7 +10,7 @@ from src.config.settings import settings
 from src.core.security import setup_superuser # 초기 관리자 생성 함수
 from src.db.session import engine, async_session_maker # DB engine 및 session maker
 from src.middleware.exception_handler import global_exception_handler
-from src.api.v1 import api_router # 통합 라우터 (auth, users, products, search, admin 포함)
+from src.api.v1 import api_router # 통합 라우터
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -29,7 +29,6 @@ async def lifespan(app: FastAPI):
         logger.info("✅ Rate Limiter System Ready.")
     except Exception as e:
         logger.error(f"⚠️ Redis Connection Failed. Rate Limiter will be inactive: {e}")
-        # Redis 연결이 실패해도 앱은 계속 실행되도록 합니다. (rate limit 기능만 비활성화)
     
     # [Startup] 초기 관리자 계정 생성 및 DB 유효성 검사
     async with async_session_maker() as session:
@@ -42,7 +41,6 @@ async def lifespan(app: FastAPI):
     yield # 애플리케이션 실행
 
     # [Shutdown] 리소스 해제
-    # FastAPILimiter.shutdown()은 별도로 구현되어 있지 않으므로, Redis 연결만 닫습니다.
     if 'redis_connection' in locals():
         await redis_connection.close()
     await engine.dispose() # DB 연결 풀 해제
@@ -53,7 +51,7 @@ async def lifespan(app: FastAPI):
 # --------------------------------------------------------------------------
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    lifespan=lifespan, # Lifespan 등록
+    lifespan=lifespan, 
     docs_url="/docs" if settings.ENVIRONMENT == "dev" else None,
     openapi_url="/openapi.json"
 )
@@ -91,19 +89,23 @@ app.add_exception_handler(Exception, global_exception_handler)
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
 # --------------------------------------------------------------------------
-# [추가된 기능] 정적 파일(이미지) 서빙 설정
+# 5. [수정됨] 정적 파일(이미지) 서빙 설정 🚨 핵심!
 # --------------------------------------------------------------------------
-# static/images 폴더가 없으면 생성 (이제 import os가 있어서 에러 안 남)
 try:
-    os.makedirs("static/images", exist_ok=True)
-    # 브라우저에서 http://localhost:8000/static/images/... 로 접근 가능하게 함
-    app.mount("/static", StaticFiles(directory="static"), name="static")
-    logger.info("✅ Static file serving enabled at /static")
+    # 1. 실제 파일이 저장될 경로 확인 (upload.py가 저장하는 곳!)
+    # 그냥 "static"이 아니라 "src/static" 이어야 해!
+    os.makedirs("src/static/images", exist_ok=True)
+    
+    # 2. 마운트 경로 수정 (directory="src/static")
+    # 브라우저가 "http://.../static/..." 달라고 하면 "src/static" 폴더를 보여줌
+    app.mount("/static", StaticFiles(directory="src/static"), name="static")
+    
+    logger.info("✅ Static file serving enabled at /static (mapped to src/static)")
 except Exception as e:
     logger.error(f"⚠️ Failed to setup static file serving: {e}")
 
 # --------------------------------------------------------------------------
-# 5. 루트 엔드포인트
+# 6. 루트 엔드포인트
 # --------------------------------------------------------------------------
 @app.get("/health")
 async def health_check():
