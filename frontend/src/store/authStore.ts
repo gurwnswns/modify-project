@@ -9,6 +9,9 @@ export interface User {
   is_active: boolean;
   is_superuser: boolean;
 
+  // 🚨 [핵심 수정] 프로필 이미지 필드 추가! (이게 있어야 빨간 줄이 사라짐)
+  profile_image?: string | null;
+
   // ✨ 추가된 필드들 (회원가입 & 프로필용)
   phone_number?: string; // 전화번호
   birth_date?: string; // 생년월일 (YYYY-MM-DD 형식 권장)
